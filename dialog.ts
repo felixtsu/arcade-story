@@ -1,5 +1,6 @@
 namespace story {
     let stateStack: ConversationState[];
+    let stateStacks: SparseArray<ConversationState[]> = {};
 
     enum State {
         Idle,
@@ -136,6 +137,21 @@ namespace story {
                     pause(1)
                 }
                 _currentCutscene().state = State.Idle;
+            });
+        }
+    }
+
+    export function startCutsceneOf(id : number, callback: () => void) {
+        _cutscene(id).cutsceneQueue.push(callback);
+        if (_cutscene(id).state === State.Idle) {
+            _cutscene(id).state = State.Running
+            control.runInParallel(() => {
+                while (_cutscene(id).cutsceneQueue.length) {
+                    _cutscene(id).state = State.Running
+                    _cutscene(id).cutsceneQueue.shift()();
+                    pause(1)
+                }
+                _cutscene(id).state = State.Idle;
             });
         }
     }
@@ -329,20 +345,37 @@ namespace story {
         pauseUntil(() => task.isDone() || state.state === State.Cancelled);
     }
 
+
+    function _newStateStack():ConversationState[] {
+        let stateStack:ConversationState[] = [];
+
+        game.addScenePushHandler(() => {
+            stateStack.push(new ConversationState());
+        });
+
+        game.addScenePopHandler(() => {
+            if (stateStack.length) {
+                stateStack[stateStack.length - 1].cancel();
+                stateStack.pop();
+            }
+        });
+
+        return stateStack
+    }
+
+    function _cutscene(id:number) {
+        if (!stateStacks[id]) {
+            stateStacks[id] = _newStateStack()
+        }
+        if (!stateStacks[id].length) {
+            !stateStacks[id].push(new ConversationState())
+        }
+        return stateStacks[id][stateStacks[id].length - 1]
+    }
+
     export function _currentCutscene() {
         if (!stateStack) {
-            stateStack = [];
-
-            game.addScenePushHandler(() => {
-                stateStack.push(new ConversationState());
-            });
-
-            game.addScenePopHandler(() => {
-                if (stateStack.length) {
-                    stateStack[stateStack.length - 1].cancel();
-                    stateStack.pop();
-                }
-            });
+            stateStack = _newStateStack()
         }
         if (!stateStack.length) {
             stateStack.push(new ConversationState());
